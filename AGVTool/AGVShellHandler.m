@@ -40,6 +40,8 @@
     NSLog(@"Shell command output: %@", output);
     NSLog(@"Shell command error: %@", error);
     if (completion) completion(t, output, error);
+    taskOutput = nil;
+    taskError = nil;
   }];
   
   @try {

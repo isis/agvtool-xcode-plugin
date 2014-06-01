@@ -20,16 +20,21 @@
 @property (nonatomic, strong) NSMenuItem *createMarketingVerItem;
 @property (nonatomic, strong) NSBundle *bundle;
 
+@property (nonatomic, strong) AGVVersionInputWindowController *versionInput;
+@property (nonatomic, strong) AGVBuildInputWindowController *buildInput;
 @end
 
 @implementation AGVTool
 
 + (void)pluginDidLoad:(NSBundle *)plugin {
-  static id sharedPlugin = nil;
-  static dispatch_once_t onceToken;
-  dispatch_once(&onceToken, ^{
-    sharedPlugin = [[self alloc] initWithBundle:plugin];
-  });
+	static id sharedPlugin = nil;
+    static dispatch_once_t onceToken;
+    NSString *currentApplicationName = [[NSBundle mainBundle] infoDictionary][@"CFBundleName"];
+    if ([currentApplicationName isEqual:@"Xcode"]) {
+        dispatch_once(&onceToken, ^{
+            sharedPlugin = [[self alloc] initWithBundle:plugin];
+        });
+    }
 }
 
 - (id)initWithBundle:(NSBundle *)plugin {
@@ -76,13 +81,14 @@
 }
 
 - (void)dealloc {
-  [super dealloc];
-  [self.bumpItem release];
-  [self.whatVerItem release];
-  [self.createVerItem release];
-  [self.createMarketingVerItem release];
-  
+  self.bumpItem = nil;
+  self.whatVerItem = nil;
+  self.createVerItem = nil;
+  self.createMarketingVerItem = nil;
+  self.versionInput = nil;
+  self.buildInput = nil;
 }
+
 - (void)agvtoolBump {
  
   [AGVShellHandler runShellCommand:@"/usr/bin/agvtool"
@@ -105,7 +111,6 @@
                           
                           NSInteger version = 0;
                           if ([self parseVersionFromOutput:standardOutput version:&version]) {
-                            
                             [AGVShellHandler runShellCommand:@"/usr/bin/agvtool"
                                                     withArgs:@[@"what-marketing-version"]
                                                    directory:[AGVWorkspaceManager currentWorkspaceDirectoryPath]
@@ -118,7 +123,7 @@
                                                                                 minorVersion:&minor]) {
                                                       
                                                       NSString *string = [NSString stringWithFormat:@"Marketing version: %ld.%ld\nVersion:%ld", major, minor, version];
-                                                     
+                                                      
                                                       [self alertWithMessage:string];
                                                       
                                                     } else {
@@ -127,44 +132,48 @@
                                                       
                                                     }
                                                   }];
+                          }else{
+                            [self alertWithMessage:@"No version found"];
                           }
                           
                           
                         }];
   
-
+  
 }
 
 
 - (void)agvtoolNewVersion {
-  
+
   [AGVShellHandler runShellCommand:@"/usr/bin/agvtool"
                           withArgs:@[@"vers"]
                          directory:[AGVWorkspaceManager currentWorkspaceDirectoryPath]
                         completion:^(NSTask *t, NSString *standardOutput, NSString *standardErr) {
-                          
-                          NSLog(@"output: %@", standardOutput);
-                          NSInteger version = 0;
+                          __block NSInteger version = 0;
                           BOOL versionFound = [self parseVersionFromOutput:standardOutput version:&version];
                           if (versionFound) {
                             
-                            AGVBuildInputWindowController *buildInput = [[AGVBuildInputWindowController alloc] initWithVersion:version completionHandler:^(NSInteger newVer) {
+                            dispatch_queue_t mainQueue = dispatch_get_main_queue();
+                            dispatch_async(mainQueue, ^{
+                              self.buildInput = [[AGVBuildInputWindowController alloc] initWithVersion:version completionHandler:^(NSInteger newVer) {
+                                
+                                NSString *arg = [NSString stringWithFormat:@"%ld", newVer];
+                                
+                                [AGVShellHandler runShellCommand:@"/usr/bin/agvtool"
+                                                        withArgs:@[@"new-version", arg]
+                                                       directory:[AGVWorkspaceManager currentWorkspaceDirectoryPath]
+                                                      completion:^(NSTask *t, NSString *standardOutput, NSString *standardErr) {
+                                                        
+                                                        [self alertWithMessage:standardOutput];
+                                                        
+                                                      }];
+                                
+                                
+                                
+                              }];
                               
-                              NSString *arg = [NSString stringWithFormat:@"%ld", newVer];
-                              
-                              [AGVShellHandler runShellCommand:@"/usr/bin/agvtool"
-                                                      withArgs:@[@"new-version", arg]
-                                                     directory:[AGVWorkspaceManager currentWorkspaceDirectoryPath]
-                                                    completion:^(NSTask *t, NSString *standardOutput, NSString *standardErr) {
-
-                                                      [self alertWithMessage:standardOutput];
-                                                   
-                                                    }];
-
-                              
-                              
-                            }];
-                            [buildInput showWindow:self];
+                              [self.buildInput showWindow:self];
+                            });
 
                           } else {
                             
@@ -183,28 +192,33 @@
                          directory:[AGVWorkspaceManager currentWorkspaceDirectoryPath]
                         completion:^(NSTask *t, NSString *standardOutput, NSString *standardErr) {
                           
-                          NSInteger major = 0;
-                          NSInteger minor = 0;
+                          __block NSInteger major = 0;
+                          __block NSInteger minor = 0;
                           BOOL versionFound = [self parseMarketingVersionFromOutput:standardOutput
                                                    majorVersion:&major
                                                    minorVersion:&minor];
-                          
+                            NSLog(@"agvtoolNewMarketingVersion %d", versionFound);
                           if (versionFound) {
-                            AGVVersionInputWindowController *versionInput = [[AGVVersionInputWindowController alloc] initWithMajorVersion:major minorVersion:minor completionHandler:^(NSInteger newMajor, NSInteger newMinor){
-                              
-                              NSString *marketVerString = [NSString stringWithFormat:@"%ld.%ld", newMajor, newMinor];
-                              NSLog(@"new version: %@", marketVerString);
-                              [AGVShellHandler runShellCommand:@"/usr/bin/agvtool"
-                                                      withArgs:@[@"new-marketing-version", marketVerString]
-                                                     directory:[AGVWorkspaceManager currentWorkspaceDirectoryPath]
-                                                    completion:^(NSTask *t, NSString *standardOutput, NSString *standardErr) {
-                                                      
-                                                      [self alertWithMessage:standardOutput];
-                                                      
-                                                    }];
 
-                            }];
-                            [versionInput showWindow:self];
+                            dispatch_queue_t mainQueue = dispatch_get_main_queue();
+                            dispatch_async(mainQueue, ^{
+                              self.versionInput = [[AGVVersionInputWindowController alloc] initWithMajorVersion:major minorVersion:minor completionHandler:^(NSInteger newMajor, NSInteger newMinor){
+                                
+                                NSString *marketVerString = [NSString stringWithFormat:@"%ld.%ld", newMajor, newMinor];
+                                NSLog(@"new version: %@", marketVerString);
+                                [AGVShellHandler runShellCommand:@"/usr/bin/agvtool"
+                                                        withArgs:@[@"new-marketing-version", marketVerString]
+                                                       directory:[AGVWorkspaceManager currentWorkspaceDirectoryPath]
+                                                      completion:^(NSTask *t, NSString *standardOutput, NSString *standardErr) {
+                                                        
+                                                        [self alertWithMessage:standardOutput];
+                                                        
+                                                      }];
+                                
+                              }];
+                              
+                              [self.versionInput showWindow:self];
+                            });
 
                           } else {
                             
@@ -251,12 +265,16 @@
 
 - (void)alertWithMessage:(NSString*)message {
   
-  NSAlert *alert = [NSAlert alertWithMessageText:message
-                                   defaultButton:@"OK"
-                                 alternateButton:nil
-                                     otherButton:nil
-                       informativeTextWithFormat:@""];
-  [alert runModal];
+  dispatch_queue_t mainQueue = dispatch_get_main_queue();
+  dispatch_async(mainQueue, ^{
+    NSAlert *alert = [NSAlert alertWithMessageText:message
+                                     defaultButton:@"OK"
+                                   alternateButton:nil
+                                       otherButton:nil
+                         informativeTextWithFormat:@""];
+    [alert runModal];
+  });
+  
 
 }
 

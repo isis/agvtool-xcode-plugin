@@ -13,7 +13,9 @@
 + (NSString *)currentWorkspaceDirectoryPath {
   id workspace = [self workspaceForKeyWindow];
   NSString *workspacePath = [[workspace valueForKey:@"representingFilePath"] valueForKey:@"_pathString"];
-  return [workspacePath stringByDeletingLastPathComponent];
+  workspacePath = [workspacePath stringByDeletingLastPathComponent];
+  //NSLog(@"workspacePath %@", workspacePath);
+  return workspacePath;
 }
 
 + (id)workspaceForKeyWindow {
